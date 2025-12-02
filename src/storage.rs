@@ -32,15 +32,13 @@ impl Storage {
         let mut saved_any = false;
         
         // Separate data by type
-        let mut values_data: Vec<(DateTime<Utc>, DateTime<Utc>, f64)> = Vec::new();
+        let mut values_data: Vec<(DateTime<Utc>, DateTime<Utc>, HashMap<String, f64>)> = Vec::new();
         let mut bids_data: Vec<(DateTime<Utc>, DateTime<Utc>, Bid)> = Vec::new();
 
         for item in data {
             match &item.payload {
                 ScraperPayload::Values(map) => {
-                    for value in map.values() {
-                        values_data.push((item.delivery_from, item.delivery_to, *value));
-                    }
+                    values_data.push((item.delivery_from, item.delivery_to, map.clone()));
                 }
                 ScraperPayload::Bids(bids) => {
                     for bid in bids {
@@ -51,13 +49,13 @@ impl Storage {
         }
 
         if !values_data.is_empty() {
-            let mut groups: HashMap<(i32, u32, u32), Vec<(DateTime<Utc>, DateTime<Utc>, f64)>> = HashMap::new();
-            for (start, end, value) in values_data {
+            let mut groups: HashMap<(i32, u32, u32), Vec<(DateTime<Utc>, DateTime<Utc>, HashMap<String, f64>)>> = HashMap::new();
+            for (start, end, map) in values_data {
                 let start_cet = start.with_timezone(&Vienna);
                 let year = start_cet.year();
                 let month = start_cet.month();
                 let day = start_cet.day();
-                groups.entry((year, month, day)).or_default().push((start, end, value));
+                groups.entry((year, month, day)).or_default().push((start, end, map));
             }
 
             for ((year, month, day), group_data) in groups {
@@ -162,7 +160,7 @@ impl Storage {
             .and_then(|s| s.parse().ok())
     }
 
-    fn process_values_partition(&self, file_path: &str, data: &[(DateTime<Utc>, DateTime<Utc>, f64)]) -> Result<bool> {
+    fn process_values_partition(&self, file_path: &str, data: &[(DateTime<Utc>, DateTime<Utc>, HashMap<String, f64>)]) -> Result<bool> {
         let path = Path::new(file_path);
 
         // Create directory if it doesn't exist
@@ -170,16 +168,8 @@ impl Storage {
             std::fs::create_dir_all(parent)?;
         }
 
-        let mut latest_values: HashMap<(i64, i64), u64> = HashMap::new();
-        let mut existing_batches = Vec::new();
-        
-        // Define the target schema
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("start", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), false),
-            Field::new("end", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), false),
-            Field::new("value", DataType::Float64, false),
-            Field::new("scraped_at", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), true),
-        ]));
+        let mut all_rows: HashMap<(i64, i64), (i64, HashMap<String, f64>)> = HashMap::new();
+        let mut all_columns: HashSet<String> = HashSet::new();
 
         if path.exists() {
             let file = File::open(path)?;
@@ -188,101 +178,142 @@ impl Storage {
             
             while let Some(batch) = reader.next() {
                 let batch = batch?;
+                let schema = batch.schema();
                 
-                // Extract data for deduplication
                 let start_col = batch.column(0).as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap();
                 let end_col = batch.column(1).as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap();
-                let value_col = batch.column(2).as_any().downcast_ref::<Float64Array>().unwrap();
-                
+                let scraped_at_idx = schema.index_of("scraped_at").ok();
+                let scraped_at_col = if let Some(idx) = scraped_at_idx {
+                    Some(batch.column(idx).as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap())
+                } else {
+                    None
+                };
+
+                // Identify value columns
+                let mut value_cols = Vec::new();
+                for (i, field) in schema.fields().iter().enumerate() {
+                    let name = field.name();
+                    if name != "start" && name != "end" && name != "scraped_at" {
+                        all_columns.insert(name.clone());
+                        value_cols.push((name.clone(), batch.column(i).as_any().downcast_ref::<Float64Array>().unwrap()));
+                    }
+                }
+
                 for i in 0..start_col.len() {
                     let start = start_col.value(i);
                     let end = end_col.value(i);
-                    let value = value_col.value(i);
-                    latest_values.insert((start, end), value.to_bits());
-                }
-
-                // Normalize batch to new schema if needed
-                if batch.schema().fields().len() < 4 {
-                    // Missing scraped_at, append nulls
-                    let len = batch.num_rows();
-                    let scraped_at_col = TimestampMicrosecondArray::from(vec![None; len]).with_timezone("UTC");
+                    let scraped_at = scraped_at_col.map(|c| c.value(i)).unwrap_or(0);
                     
-                    let new_batch = RecordBatch::try_new(
-                        schema.clone(),
-                        vec![
-                            batch.column(0).clone(),
-                            batch.column(1).clone(),
-                            batch.column(2).clone(),
-                            Arc::new(scraped_at_col),
-                        ],
-                    )?;
-                    existing_batches.push(new_batch);
-                } else {
-                    existing_batches.push(batch);
+                    let entry = all_rows.entry((start, end)).or_insert((scraped_at, HashMap::new()));
+                    
+                    for (name, col) in &value_cols {
+                        if !col.is_null(i) {
+                            entry.1.insert(name.clone(), col.value(i));
+                        }
+                    }
                 }
             }
         }
 
-        let mut new_starts = Vec::new();
-        let mut new_ends = Vec::new();
-        let mut new_values = Vec::new();
-        let mut new_scraped_ats = Vec::new();
-        
         let now_micros = Utc::now().timestamp_micros();
+        let mut has_changes = false;
 
-        for (start, end, value) in data {
+        for (start, end, new_values) in data {
             let start_micros = start.timestamp_micros();
             let end_micros = end.timestamp_micros();
-            let value_bits = value.to_bits();
             
-            let is_changed = match latest_values.get(&(start_micros, end_micros)) {
-                Some(&last_value_bits) => last_value_bits != value_bits,
-                None => true,
-            };
-            
-            if is_changed {
-                new_starts.push(start_micros);
-                new_ends.push(end_micros);
-                new_values.push(*value);
-                new_scraped_ats.push(now_micros);
-                
-                // Update latest values to handle multiple updates in the same scrape batch
-                latest_values.insert((start_micros, end_micros), value_bits);
+            for k in new_values.keys() {
+                all_columns.insert(k.clone());
+            }
+
+            let entry = all_rows.entry((start_micros, end_micros)).or_insert((0, HashMap::new()));
+            let (existing_scraped_at, existing_values) = entry;
+
+            let mut changed = false;
+            if *existing_scraped_at == 0 {
+                changed = true;
+            } else {
+                for (k, v) in new_values {
+                    match existing_values.get(k) {
+                        Some(old_v) => {
+                            if (old_v - v).abs() > f64::EPSILON {
+                                changed = true;
+                            }
+                        }
+                        None => changed = true,
+                    }
+                }
+            }
+
+            if changed {
+                has_changes = true;
+                *existing_scraped_at = now_micros;
+                for (k, v) in new_values {
+                    existing_values.insert(k.clone(), *v);
+                }
             }
         }
 
-        if new_starts.is_empty() {
+        if !has_changes {
             return Ok(false);
         }
 
-        let start_array = TimestampMicrosecondArray::from(new_starts).with_timezone("UTC");
-        let end_array = TimestampMicrosecondArray::from(new_ends).with_timezone("UTC");
-        let value_array = Float64Array::from(new_values);
-        let scraped_at_array = TimestampMicrosecondArray::from(new_scraped_ats).with_timezone("UTC");
+        let mut sorted_columns: Vec<String> = all_columns.into_iter().collect();
+        sorted_columns.sort();
 
-        let new_batch = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(start_array),
-                Arc::new(end_array),
-                Arc::new(value_array),
-                Arc::new(scraped_at_array),
-            ],
-        )?;
+        let mut fields = vec![
+            Field::new("start", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), false),
+            Field::new("end", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), false),
+            Field::new("scraped_at", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), true),
+        ];
+        for col in &sorted_columns {
+            fields.push(Field::new(col, DataType::Float64, true));
+        }
+        let schema = Arc::new(Schema::new(fields));
 
-        // Write everything back to a temp file first for atomic updates
+        let mut sorted_rows: Vec<_> = all_rows.into_iter().collect();
+        sorted_rows.sort_by_key(|((start, _), _)| *start);
+
+        let mut start_builder = TimestampMicrosecondArray::builder(sorted_rows.len());
+        let mut end_builder = TimestampMicrosecondArray::builder(sorted_rows.len());
+        let mut scraped_at_builder = TimestampMicrosecondArray::builder(sorted_rows.len());
+        
+        let mut value_builders: Vec<arrow::array::Float64Builder> = Vec::with_capacity(sorted_columns.len());
+        for _ in 0..sorted_columns.len() {
+            value_builders.push(arrow::array::Float64Builder::new());
+        }
+
+        for ((start, end), (scraped_at, values)) in sorted_rows {
+            start_builder.append_value(start);
+            end_builder.append_value(end);
+            scraped_at_builder.append_value(scraped_at);
+
+            for (i, col_name) in sorted_columns.iter().enumerate() {
+                if let Some(val) = values.get(col_name) {
+                    value_builders[i].append_value(*val);
+                } else {
+                    value_builders[i].append_null();
+                }
+            }
+        }
+
+        let mut columns: Vec<Arc<dyn Array>> = vec![
+            Arc::new(start_builder.finish().with_timezone("UTC")),
+            Arc::new(end_builder.finish().with_timezone("UTC")),
+            Arc::new(scraped_at_builder.finish().with_timezone("UTC")),
+        ];
+        for mut builder in value_builders {
+            columns.push(Arc::new(builder.finish()));
+        }
+
+        let batch = RecordBatch::try_new(schema.clone(), columns)?;
+
         let tmp_path = format!("{}.tmp", file_path);
         let file = File::create(&tmp_path)?;
         let mut writer = ArrowWriter::try_new(file, schema.clone(), None)?;
-
-        for batch in existing_batches {
-            writer.write(&batch)?;
-        }
-        writer.write(&new_batch)?;
-
+        writer.write(&batch)?;
         writer.close()?;
         
-        // Atomic rename
         std::fs::rename(&tmp_path, path)?;
         
         Ok(true)

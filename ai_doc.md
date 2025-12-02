@@ -57,25 +57,23 @@ pub struct StrategyInformationScraperConfig {
 Scrapes data from the Austrian Power Grid (APG).
 
 **Module**: `energy_strategy_scrapers::apg_information_scraper`
-**Struct**: `APGInformationScraper`
+**Struct**: `APGInformationScraper` 
 
 **Initialization**:
 ```rust
 use energy_strategy_scrapers::apg_information_scraper::APGInformationScraper;
-use energy_strategy_scrapers::models::apg_actions::APGAction;
 
-let scraper = APGInformationScraper::new(config, APGAction::ATImb15Min)?;
+let scraper = APGInformationScraper::new(config)?;
 ```
 
 **Required Config Keys**:
 - `url`: Base URL for the APG API.
-- `value_column`: The internal name of the column to extract from the response.
+- `url_template`: Template string for the API endpoint (e.g., `DRZ/Data/English/PT15M/{from}/{to}?p_drzMode=OperationalOrSettlement`).
+- `value_column` (or `value_columns`): The internal name(s) of the column(s) to extract from the response.
 
-**Supported Actions (`APGAction`)**:
-- `ATImb15Min`
-- `ATImb5Min`
-- `ATImbPrice15Min`
-- `CrossBorderPhysicalFlow`
+**Optional Config Keys**:
+- `time_offset_minutes`: Integer offset in minutes to adjust the query window (default: 0).
+- `is_balancing_bids`: Boolean flag to indicate if the scraper should parse balancing bids (default: false).
 
 ### 2. ENTSO-E Information Scraper
 
@@ -102,15 +100,15 @@ use std::collections::HashMap;
 use serde_json::Value;
 use energy_strategy_scrapers::models::strategy_information_scraper_config::StrategyInformationScraperConfig;
 use energy_strategy_scrapers::apg_information_scraper::APGInformationScraper;
-use energy_strategy_scrapers::models::apg_actions::APGAction;
 use energy_strategy_scrapers::scraper::Scraper;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // 1. Create Configuration
     let mut values = HashMap::new();
-    values.insert("url".to_string(), Value::String("https://api.apg.at/...".to_string()));
-    values.insert("value_column".to_string(), Value::String("CB_AT_DE".to_string()));
+    values.insert("url".to_string(), Value::String("https://transparency.apg.at/api/v1".to_string()));
+    values.insert("url_template".to_string(), Value::String("ATC/Data/English/PT15M/{from}/{to}?p_border=AT<>DE".to_string()));
+    values.insert("value_column".to_string(), Value::String("OfferedCapacityDEtoAT".to_string()));
 
     let config = StrategyInformationScraperConfig {
         name: "APG_Scraper_Test".to_string(),
@@ -120,14 +118,13 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // 2. Initialize Scraper
-    let scraper = APGInformationScraper::new(config, APGAction::CrossBorderPhysicalFlow)?;
+    let scraper = APGInformationScraper::new(config)?;
 
     // 3. Scrape Data
     let data = scraper.scrape_data().await?;
 
-    for (start, end, value) in data {
-        println!("{} - {}: {}", start, end, value);
-    }
+    // Note: ScraperData structure might vary, check models/scraper_data.rs
+    println!("Fetched {} data points", data.len());
 
     Ok(())
 }

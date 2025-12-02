@@ -18,6 +18,8 @@
             "url": "https://transparency.apg.at/api/v1",
             "drz_mode": "OperationalOrSettlement",
             "value_column": "DRZ15M",
+            "url_template": "DRZ/Data/English/PT15M/{from}/{to}?p_drzMode=OperationalOrSettlement",
+            "time_offset_minutes": "-30",
             "sub_data_folder": "apg/imbalance/PT15M"
         },
         {
@@ -26,40 +28,28 @@
             "task_generator_delay_ms": 200,
             "url": "https://transparency.apg.at/api/v1",
             "drz_mode": "CurrentBalancingState5M",
+            "url_template": "DRZ/Data/English/PT5M/{from}/{to}?p_drzMode=CurrentBalancingState5M",
+            "time_offset_minutes": "-30",
             "value_column": "DRZ5M",
             "sub_data_folder": "apg/imbalance/PT5M"
         },
         {
-            "name": "de_to_at",
+            "name": "at_de_exchange",
             "workers": 1,
             "task_generator_delay_ms": 1000,
             "url": "https://transparency.apg.at/api/v1",
-            "value_column": "OfferedCapacityDEtoAT",
-            "sub_data_folder": "apg/atc/de_to_at"
+            "url_template": "ATC/Data/English/PT15M/{from}/{to}?p_border=AT<>DE",
+            "value_columns": ["OfferedCapacityDEtoAT", "OfferedCapacityATtoDE"],
+            "sub_data_folder": "apg/atc/at_de_exchange"
         },
         {
-            "name": "at_to_de",
+            "name": "at_cz_exchange",
             "workers": 1,
             "task_generator_delay_ms": 1000,
             "url": "https://transparency.apg.at/api/v1",
-            "value_column": "OfferedCapacityATtoDE",
-            "sub_data_folder": "apg/atc/at_to_de"
-        },
-        {
-            "name": "cz_to_at",
-            "workers": 1,
-            "task_generator_delay_ms": 1000,
-            "url": "https://transparency.apg.at/api/v1",
-            "value_column": "OfferedCapacityCZtoAT",
-            "sub_data_folder": "apg/atc/cz_to_at"
-        },
-        {
-            "name": "at_to_cz",
-            "workers": 1,
-            "task_generator_delay_ms": 1000,
-            "url": "https://transparency.apg.at/api/v1",
-            "value_column": "OfferedCapacityATtoCZ",
-            "sub_data_folder": "apg/atc/at_to_cz"
+            "url_template": "ATC/Data/English/PT15M/{from}/{to}?p_border=AT<>CZ",
+            "value_columns": ["OfferedCapacityCZtoAT", "OfferedCapacityATtoCZ"],
+            "sub_data_folder": "apg/atc/at_cz_exchange"
         },
         {
             "name": "apg_imb_price_15min",
@@ -67,6 +57,7 @@
             "task_generator_delay_ms": 1000,
             "url": "https://transparency.apg.at/api/v1",
             "value_column": "AEPrice",
+            "url_template": "AE/Data/English/PT15M/{from}/{to}?p_aeMode=Default&p_aeTimeSeriesQuality=FirstValue",
             "sub_data_folder": "apg/imbalance/price/15min"
         },
         {
@@ -74,6 +65,7 @@
             "workers": 1,
             "task_generator_delay_ms": 5000,
             "url": "https://transparency.apg.at/api/v1",
+            "url_template": "SET/Data/English/PT15M/{from}/{to}/Full?p_setMode=Overview",
             "sub_data_folder": "apg/balancing/bids"
         }
     ]
