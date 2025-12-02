@@ -17,8 +17,6 @@ use uploader::Uploader;
 use ve_energy_scrapers::scraper::Scraper;
 use ve_energy_scrapers::apg_information_scraper::APGInformationScraper;
 use ve_energy_scrapers::entsoe_information_scraper::EntsoeInformationScraper;
-use ve_energy_scrapers::models::apg_actions::APGAction;
-use ve_energy_scrapers::models::strategy_information_scraper_config::StrategyInformationScraperConfig;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -91,8 +89,7 @@ async fn start_scraper_pool(config: ScraperConfig, storage: Arc<Storage>) -> Res
         if url.contains("entsoe") {
             Box::new(EntsoeInformationScraper::new(strategy_config)?)
         } else if url.contains("apg") {
-            let action = determine_apg_action(&config.scraper_config)?;
-            Box::new(APGInformationScraper::new(strategy_config, action)?)
+            Box::new(APGInformationScraper::new(strategy_config)?)
         } else {
             return Err(anyhow::anyhow!("Unknown scraper URL type: {}", url));
         }
@@ -166,8 +163,3 @@ async fn start_scraper_pool(config: ScraperConfig, storage: Arc<Storage>) -> Res
     Ok(())
 }
 
-fn determine_apg_action(config: &StrategyInformationScraperConfig) -> Result<APGAction> {
-    let action: APGAction = serde_json::from_str(&format!("\"{}\"", config.name))
-        .with_context(|| format!("Failed to determine APGAction from name: {}", config.name))?;
-    Ok(action)
-}

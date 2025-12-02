@@ -30,12 +30,53 @@ The core interface is the `Scraper` trait, defined in `src/scraper.rs`.
 #[async_trait]
 pub trait Scraper: Send + Sync {
     fn get_config(&self) -> &StrategyInformationScraperConfig;
-    async fn scrape_data(&self) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>, f64)>>;
+    async fn scrape_data(&self) -> Result<Vec<ScraperData>>;
 }
 ```
 
 - `get_config()`: Returns the configuration used by the scraper.
-- `scrape_data()`: Asynchronously fetches data and returns a vector of tuples: `(start_time, end_time, value)`.
+- `scrape_data()`: Asynchronously fetches data and returns a vector of `ScraperData`.
+
+### Data Models
+
+The data returned by scrapers is structured using the `ScraperData` struct defined in `src/models/scraper_data.rs`.
+
+```rust
+pub struct ScraperData {
+    pub delivery_from: DateTime<Utc>,
+    pub delivery_to: DateTime<Utc>,
+    pub payload: ScraperPayload,
+}
+
+pub enum ScraperPayload {
+    Values(HashMap<String, f64>),
+    Bids(Vec<Bid>),
+}
+```
+
+**Bid Structure**
+The `Bid` struct is designed to be `Copy`-compliant for efficient async handling.
+
+```rust
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct Bid {
+    pub price: Option<f64>,
+    pub volume: Option<f64>,
+    pub bid_type: BidType,
+    pub direction: BidDirection,
+    pub rank: i32,
+}
+
+pub enum BidType {
+    SRE, // Secondary Regulation Energy
+    TRE, // Tertiary Regulation Energy
+}
+
+pub enum BidDirection {
+    POS, // Positive
+    NEG, // Negative
+}
+```
 
 ### `StrategyInformationScraperConfig`
 
@@ -57,7 +98,7 @@ pub struct StrategyInformationScraperConfig {
 Scrapes data from the Austrian Power Grid (APG).
 
 **Module**: `energy_strategy_scrapers::apg_information_scraper`
-**Struct**: `APGInformationScraper` 
+**Struct**: `APGInformationScraper`
 
 **Initialization**:
 ```rust

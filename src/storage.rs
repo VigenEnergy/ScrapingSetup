@@ -327,14 +327,15 @@ impl Storage {
             std::fs::create_dir_all(parent)?;
         }
 
-        let mut latest_values: HashMap<(i64, i64, String, i32), (Option<f64>, Option<f64>)> = HashMap::new();
+        let mut latest_values: HashMap<(i64, i64, String, String, i32), (Option<f64>, Option<f64>)> = HashMap::new();
         let mut existing_batches = Vec::new();
         
         // Define the target schema
         let schema = Arc::new(Schema::new(vec![
             Field::new("start", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), false),
             Field::new("end", DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())), false),
-            Field::new("product", DataType::Utf8, false),
+            Field::new("bid_type", DataType::Utf8, false),
+            Field::new("direction", DataType::Utf8, false),
             Field::new("rank", DataType::Int32, false),
             Field::new("price", DataType::Float64, true),
             Field::new("volume", DataType::Float64, true),
@@ -352,20 +353,22 @@ impl Storage {
                 // Extract data for deduplication
                 let start_col = batch.column(0).as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap();
                 let end_col = batch.column(1).as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap();
-                let product_col = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-                let rank_col = batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
-                let price_col = batch.column(4).as_any().downcast_ref::<Float64Array>().unwrap();
-                let volume_col = batch.column(5).as_any().downcast_ref::<Float64Array>().unwrap();
+                let bid_type_col = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+                let direction_col = batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
+                let rank_col = batch.column(4).as_any().downcast_ref::<Int32Array>().unwrap();
+                let price_col = batch.column(5).as_any().downcast_ref::<Float64Array>().unwrap();
+                let volume_col = batch.column(6).as_any().downcast_ref::<Float64Array>().unwrap();
                 
                 for i in 0..start_col.len() {
                     let start = start_col.value(i);
                     let end = end_col.value(i);
-                    let product = product_col.value(i).to_string();
+                    let bid_type = bid_type_col.value(i).to_string();
+                    let direction = direction_col.value(i).to_string();
                     let rank = rank_col.value(i);
                     let price = if price_col.is_null(i) { None } else { Some(price_col.value(i)) };
                     let volume = if volume_col.is_null(i) { None } else { Some(volume_col.value(i)) };
                     
-                    latest_values.insert((start, end, product, rank), (price, volume));
+                    latest_values.insert((start, end, bid_type, direction, rank), (price, volume));
                 }
                 existing_batches.push(batch);
             }
@@ -373,7 +376,8 @@ impl Storage {
 
         let mut new_starts = Vec::new();
         let mut new_ends = Vec::new();
-        let mut new_products = Vec::new();
+        let mut new_bid_types = Vec::new();
+        let mut new_directions = Vec::new();
         let mut new_ranks = Vec::new();
         let mut new_prices = Vec::new();
         let mut new_volumes = Vec::new();
@@ -384,12 +388,13 @@ impl Storage {
         for (start, end, bid) in data {
             let start_micros = start.timestamp_micros();
             let end_micros = end.timestamp_micros();
-            let product = bid.product.clone();
+            let bid_type = format!("{:?}", bid.bid_type);
+            let direction = format!("{:?}", bid.direction);
             let rank = bid.rank;
             let price = bid.price;
             let volume = bid.volume;
             
-            let is_changed = match latest_values.get(&(start_micros, end_micros, product.clone(), rank)) {
+            let is_changed = match latest_values.get(&(start_micros, end_micros, bid_type.clone(), direction.clone(), rank)) {
                 Some((last_price, last_volume)) => {
                     let price_changed = match (last_price, price) {
                         (Some(lp), Some(p)) => (lp - p).abs() > f64::EPSILON,
@@ -409,13 +414,14 @@ impl Storage {
             if is_changed {
                 new_starts.push(start_micros);
                 new_ends.push(end_micros);
-                new_products.push(product.clone());
+                new_bid_types.push(bid_type.clone());
+                new_directions.push(direction.clone());
                 new_ranks.push(rank);
                 new_prices.push(price);
                 new_volumes.push(volume);
                 new_scraped_ats.push(now_micros);
                 
-                latest_values.insert((start_micros, end_micros, product, rank), (price, volume));
+                latest_values.insert((start_micros, end_micros, bid_type, direction, rank), (price, volume));
             }
         }
 
@@ -425,7 +431,8 @@ impl Storage {
 
         let start_array = TimestampMicrosecondArray::from(new_starts).with_timezone("UTC");
         let end_array = TimestampMicrosecondArray::from(new_ends).with_timezone("UTC");
-        let product_array = StringArray::from(new_products);
+        let bid_type_array = StringArray::from(new_bid_types);
+        let direction_array = StringArray::from(new_directions);
         let rank_array = Int32Array::from(new_ranks);
         let price_array = Float64Array::from(new_prices);
         let volume_array = Float64Array::from(new_volumes);
@@ -436,7 +443,8 @@ impl Storage {
             vec![
                 Arc::new(start_array),
                 Arc::new(end_array),
-                Arc::new(product_array),
+                Arc::new(bid_type_array),
+                Arc::new(direction_array),
                 Arc::new(rank_array),
                 Arc::new(price_array),
                 Arc::new(volume_array),
