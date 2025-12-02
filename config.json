@@ -66,7 +66,8 @@
             "task_generator_delay_ms": 5000,
             "url": "https://transparency.apg.at/api/v1",
             "url_template": "SET/Data/English/PT15M/{from}/{to}/Full?p_setMode=Overview",
-            "sub_data_folder": "apg/balancing/bids"
+            "sub_data_folder": "apg/balancing/bids",
+            "is_balancing_bids": "true"
         }
     ]
 }
