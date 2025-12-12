@@ -27,7 +27,7 @@ jobs:
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
+          owner: VigenEnergy
 
       - name: Checkout repository
         uses: actions/checkout@v4
