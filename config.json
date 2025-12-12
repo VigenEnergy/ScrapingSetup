@@ -1,6 +1,7 @@
 {
-    "s3_bucket": "database-parquet-files-ve",
-    "s3_region": "eu-central-1",
+    "s3_bucket": "ve-datalake",
+    "s3_region": "fsn1",
+    "s3_endpoint": "https://fsn1.your-objectstorage.com",
     "retention_days": 7,
     "scrapers": [
         {

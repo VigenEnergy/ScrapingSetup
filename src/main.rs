@@ -40,8 +40,13 @@ async fn main() -> Result<()> {
     
     let mut dirty_files_handle = None;
     
-    if let Some(bucket) = &config.s3_bucket {
-        let uploader = Uploader::new(bucket.clone(), config.s3_region.clone()).await?;
+    // Use env vars with fallback to config file values
+    if let Some(bucket) = config.get_s3_bucket() {
+        let uploader = Uploader::new(
+            bucket,
+            config.get_s3_region(),
+            config.get_s3_endpoint(),
+        ).await?;
         dirty_files_handle = Some(uploader.get_pending_files_handle());
         
         tokio::spawn(async move {

@@ -1,0 +1,25 @@
+# Build artifacts
+target/
+debug/
+release/
+
+# Data and logs (should be mounted as volumes)
+data/
+logs/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Documentation
+*.md
+!README.md
+
+# Local config overrides
+*.local.json

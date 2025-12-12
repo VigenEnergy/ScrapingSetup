@@ -1,7 +1,9 @@
 use anyhow::Result;
 use aws_sdk_s3::Client;
+use aws_sdk_s3::config::Credentials;
 use aws_config::Region;
 use std::collections::HashSet;
+use std::env;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,15 +18,38 @@ pub struct Uploader {
 }
 
 impl Uploader {
-    pub async fn new(bucket: String, region: Option<String>) -> Result<Self> {
-        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-        let config = if let Some(region) = region {
-            config.into_builder().region(Region::new(region)).build()
-        } else {
-            config
-        };
+    pub async fn new(bucket: String, region: Option<String>, endpoint: Option<String>) -> Result<Self> {
+        let region = region.unwrap_or_else(|| "eu-central".to_string());
         
-        let client = Client::new(&config);
+        let mut s3_config_builder = aws_sdk_s3::config::Builder::new()
+            .region(Region::new(region))
+            .behavior_version_latest();
+        
+        // For S3-compatible services like Hetzner Object Storage
+        if let Some(endpoint_url) = endpoint {
+            s3_config_builder = s3_config_builder
+                .endpoint_url(endpoint_url)
+                .force_path_style(true); // Required for most S3-compatible services
+        }
+        
+        // Try custom S3_* env vars first, then fall back to AWS_* env vars
+        let access_key = env::var("S3_ACCESS_KEY")
+            .or_else(|_| env::var("AWS_ACCESS_KEY_ID"));
+        let secret_key = env::var("S3_SECRET_KEY")
+            .or_else(|_| env::var("AWS_SECRET_ACCESS_KEY"));
+        
+        if let (Ok(access), Ok(secret)) = (access_key, secret_key) {
+            let credentials = Credentials::new(access, secret, None, None, "env");
+            s3_config_builder = s3_config_builder.credentials_provider(credentials);
+        } else {
+            // Fall back to default AWS credential chain
+            let shared_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            if let Some(credentials_provider) = shared_config.credentials_provider() {
+                s3_config_builder = s3_config_builder.credentials_provider(credentials_provider);
+            }
+        }
+        
+        let client = Client::from_conf(s3_config_builder.build());
         
         Ok(Self {
             client,
