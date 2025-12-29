@@ -14,14 +14,15 @@ pub struct AppConfig {
     pub s3_bucket: Option<String>,
     pub s3_region: Option<String>,
     pub s3_endpoint: Option<String>,
+    pub s3_prefix: Option<String>,
     pub scrapers: Vec<ScraperConfig>,
     pub retention_days: Option<u64>,
 }
 
 impl AppConfig {
-    /// Get S3 bucket from env var S3_DATALAKE_BUCKET, falling back to config file
+    /// Get S3 bucket from env var S3_BUCKET, falling back to config file
     pub fn get_s3_bucket(&self) -> Option<String> {
-        env::var("S3_DATALAKE_BUCKET").ok().or_else(|| self.s3_bucket.clone())
+        env::var("S3_BUCKET").ok().or_else(|| self.s3_bucket.clone())
     }
     
     /// Get S3 region from env var S3_REGION, falling back to config file
@@ -32,6 +33,14 @@ impl AppConfig {
     /// Get S3 endpoint from env var S3_ENDPOINT, falling back to config file
     pub fn get_s3_endpoint(&self) -> Option<String> {
         env::var("S3_ENDPOINT").ok().or_else(|| self.s3_endpoint.clone())
+    }
+    
+    /// Get S3 prefix from env var S3_PREFIX, falling back to config file, default "data/"
+    pub fn get_s3_prefix(&self) -> String {
+        env::var("S3_PREFIX")
+            .ok()
+            .or_else(|| self.s3_prefix.clone())
+            .unwrap_or_else(|| "data/".to_string())
     }
 }
 

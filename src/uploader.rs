@@ -14,11 +14,12 @@ use tracing::{info, warn};
 pub struct Uploader {
     client: Client,
     bucket: String,
+    prefix: String,
     pending_files: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Uploader {
-    pub async fn new(bucket: String, region: Option<String>, endpoint: Option<String>) -> Result<Self> {
+    pub async fn new(bucket: String, region: Option<String>, endpoint: Option<String>, prefix: String) -> Result<Self> {
         let region = region.unwrap_or_else(|| "eu-central".to_string());
         
         let mut s3_config_builder = aws_sdk_s3::config::Builder::new()
@@ -54,6 +55,7 @@ impl Uploader {
         Ok(Self {
             client,
             bucket,
+            prefix,
             pending_files: Arc::new(Mutex::new(HashSet::new())),
         })
     }
@@ -101,7 +103,7 @@ impl Uploader {
     async fn upload_file(&self, file_path: &str) -> Result<()> {
         let path = Path::new(file_path);
         let relative_path = path.strip_prefix("data/")?.to_string_lossy();
-        let key = format!("data/{}", relative_path);
+        let key = format!("{}{}", self.prefix, relative_path);
         
         let body = aws_sdk_s3::primitives::ByteStream::from_path(path).await?;
 

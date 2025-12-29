@@ -20,6 +20,10 @@ use ve_energy_scrapers::entsoe_information_scraper::EntsoeInformationScraper;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load .env file in debug builds only
+    #[cfg(debug_assertions)]
+    dotenvy::dotenv().ok();
+
     let file_appender = tracing_appender::rolling::daily("logs", "service.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
@@ -46,6 +50,7 @@ async fn main() -> Result<()> {
             bucket,
             config.get_s3_region(),
             config.get_s3_endpoint(),
+            config.get_s3_prefix(),
         ).await?;
         dirty_files_handle = Some(uploader.get_pending_files_handle());
         
