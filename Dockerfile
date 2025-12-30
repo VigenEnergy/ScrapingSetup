@@ -44,8 +44,7 @@ COPY config.json ./config.json
 RUN mkdir -p /app/data /app/logs
 
 # Set environment variables
-# Filter out verbose request logs from scrapers crate
-ENV RUST_LOG=info,ve_energy_scrapers=warn
+ENV RUST_LOG=info
 
 # Run the application
 CMD ["scraping_service"]
