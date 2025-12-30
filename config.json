@@ -2,6 +2,7 @@
     "s3_bucket": "ve-datalake",
     "s3_region": "fsn1",
     "s3_endpoint": "https://fsn1.your-objectstorage.com",
+    "s3_prefix": "data/",
     "retention_days": 7,
     "scrapers": [
         {
