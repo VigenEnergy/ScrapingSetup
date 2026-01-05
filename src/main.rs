@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::sleep;
+use chrono::{Duration as ChronoDuration, Utc};
 
 mod config;
 mod storage;
@@ -148,8 +149,13 @@ async fn start_scraper_pool(config: ScraperConfig, storage: Arc<Storage>) -> Res
                     }
                 } // Lock released here
 
+                // Define date range: yesterday, today, and tomorrow
+                let now = Utc::now();
+                let start_date = now - ChronoDuration::days(1); // Yesterday
+                let end_date = now + ChronoDuration::days(1);   // Tomorrow
+
                 // Perform the scrape
-                match scraper.scrape_data().await {
+                match scraper.scrape_data(start_date, end_date).await {
                     Ok(data) => {
                         if !data.is_empty() {
                             match storage.save_if_new(&scraper_name, subfolder.as_deref(), &data).await {
